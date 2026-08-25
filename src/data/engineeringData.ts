@@ -461,8 +461,8 @@ export const ENGINEERING_STRUCTURES: EngineeringStructure[] = [
     name: 'Terraced Historic Terracotta Temple Complex (ঐতিহাসিক মন্দির)',
     discipline: 'Cultural Heritage & Civil Restoration',
     zone: 'Grand Central Mosque & Historic Terracotta Temple',
-    position: [25, 0, -155],
-    targetLookAt: [25, 16, -155],
+    position: [25, 0, -280],
+    targetLookAt: [25, 16, -280],
     summary: 'Historic 7-tier curvilinear Shikhara temple with handcrafted burnt terracotta brick relief panels, stepped stone plinth, and restored sanctum portico.',
     status: 'Operational',
     metrics: [

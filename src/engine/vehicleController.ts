@@ -87,6 +87,8 @@ export class VehicleController {
   private frontWheels: THREE.Group[] = [];
   private headlightGlows: THREE.SpotLight[] = [];
   private animatables: Array<{ update: (time: number, delta: number) => void }> = [];
+  private smoothedPitch = 0;
+  private smoothedRoll = 0;
 
   constructor(initialType: VehicleModelType = 'suv') {
     this.mesh = new THREE.Group();
@@ -573,10 +575,13 @@ export class VehicleController {
     const ry = getTerrainHeight(rx, rz);
     const roll = Math.atan2(ly - ry, sideDist * 2);
 
+    this.smoothedPitch = THREE.MathUtils.damp(this.smoothedPitch, pitch, 10, delta);
+    this.smoothedRoll = THREE.MathUtils.damp(this.smoothedRoll, roll, 10, delta);
+
     this.state.rpm = Math.floor(800 + (Math.abs(this.state.speed) / maxSpeed) * 4500 + (forward ? 600 : 0));
 
     this.mesh.position.set(this.state.x, this.state.y, this.state.z);
-    this.mesh.rotation.set(pitch, this.state.rotation, -roll, 'YXZ');
+    this.mesh.rotation.set(this.smoothedPitch, this.state.rotation, -this.smoothedRoll, 'YXZ');
 
     // Update inner animatables (e.g. mixer drum)
     this.animatables.forEach((a) => a.update(time, delta));

@@ -209,7 +209,7 @@ export function buildCentralIconicDistrict(scene: THREE.Scene): CentralDistrictR
   // Location: x = 25, z = -155
   // =========================================================================
   const templeX = 25;
-  const templeZ = -155;
+  const templeZ = -280;
   const templeY = getTerrainHeight(templeX, templeZ);
 
   const templeGroup = new THREE.Group();

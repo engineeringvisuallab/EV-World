@@ -4,7 +4,7 @@ import { buildEngineeringWorld, WorldObjects } from '../engine/worldBuilder';
 import { VehicleController, VEHICLE_CATALOG } from '../engine/vehicleController';
 import { WalkingController } from '../engine/walkingController';
 import { TrafficSystem } from '../engine/trafficSystem';
-import { getTerrainHeight } from '../engine/terrainEngine';
+import { getTerrainHeight, HALF_MAP } from '../engine/terrainEngine';
 import { CameraViewMode, EngineeringStructure, ExplorationMode, TrafficBlip, VehicleModelType } from '../types';
 import { ENGINEERING_STRUCTURES } from '../data/engineeringData';
 
@@ -96,6 +96,9 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
   const mouseOrbit = useRef({ yaw: 0, pitch: 0.28, distance: 26 });
   const isMouseDown = useRef(false);
   const prevMousePos = useRef({ x: 0, y: 0 });
+
+  const droneTarget = useRef({ x: 0, z: 0 });
+  const droneKeys = useRef<{ [code: string]: boolean }>({});
 
   // Handle vehicle type change
   useEffect(() => {
@@ -284,6 +287,8 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
     const onKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
 
+      droneKeys.current[e.code] = true;
+
       if (e.key === 'c' || e.key === 'C') {
         if (modeRef.current === 'walk' && walkingRef.current) {
           walkingRef.current.toggleViewMode();
@@ -312,7 +317,12 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
       }
     };
 
+    const onKeyUp = (e: KeyboardEvent) => {
+      droneKeys.current[e.code] = false;
+    };
+
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
     container.addEventListener('mousedown', onPointerDown);
     window.addEventListener('mouseup', onPointerUp);
     container.addEventListener('mousemove', onPointerMove);
@@ -335,6 +345,14 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
     let clock = new THREE.Clock();
     let smoothCamPos = new THREE.Vector3(0, 16, -18);
     let smoothLookAt = new THREE.Vector3(0, 12, 0);
+
+    // Frame-rate independent camera smoothing — never overshoots, unlike
+    // raw .lerp(target, delta * speed) whose alpha has no upper bound.
+    const dampVec3 = (current: THREE.Vector3, target: THREE.Vector3, lambda: number, delta: number) => {
+      current.x = THREE.MathUtils.damp(current.x, target.x, lambda, delta);
+      current.y = THREE.MathUtils.damp(current.y, target.y, lambda, delta);
+      current.z = THREE.MathUtils.damp(current.z, target.z, lambda, delta);
+    };
 
     // Throttle HUD telemetry callbacks (each one fans out to ~8 React setState
     // calls in App.tsx) to ~15Hz instead of the full 60fps render loop, so the
@@ -465,7 +483,7 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
             const targetCam = new THREE.Vector3(eyeX, eyeY, eyeZ);
             const targetLook = new THREE.Vector3(lookX, lookY, lookZ);
 
-            smoothCamPos.lerp(targetCam, delta * 25.0);
+            dampVec3(smoothCamPos, targetCam, 25.0, delta);
             smoothLookAt.lerp(targetLook, delta * 25.0);
 
             camera.position.copy(smoothCamPos);
@@ -544,20 +562,42 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
           }
         }
       } else if (modeRef.current === 'drone') {
-        // Aerial Inspection Drone Camera (Smooth Orbital Panoramic Flythrough)
         const orbitYaw = mouseOrbit.current.yaw;
+        const fwdX = -Math.sin(orbitYaw);
+        const fwdZ = -Math.cos(orbitYaw);
+        const rightX = Math.cos(orbitYaw);
+        const rightZ = -Math.sin(orbitYaw);
+
+        let moveX = 0;
+        let moveZ = 0;
+        if (droneKeys.current['KeyW'] || droneKeys.current['ArrowUp']) { moveX += fwdX; moveZ += fwdZ; }
+        if (droneKeys.current['KeyS'] || droneKeys.current['ArrowDown']) { moveX -= fwdX; moveZ -= fwdZ; }
+        if (droneKeys.current['KeyD'] || droneKeys.current['ArrowRight']) { moveX += rightX; moveZ += rightZ; }
+        if (droneKeys.current['KeyA'] || droneKeys.current['ArrowLeft']) { moveX -= rightX; moveZ -= rightZ; }
+
+        const moveLen = Math.hypot(moveX, moveZ);
+        if (moveLen > 0.001) {
+          const boost = droneKeys.current['ShiftLeft'] || droneKeys.current['ShiftRight'] ? 3.0 : 1.0;
+          const droneSpeed = 180 * boost;
+          droneTarget.current.x += (moveX / moveLen) * droneSpeed * delta;
+          droneTarget.current.z += (moveZ / moveLen) * droneSpeed * delta;
+          droneTarget.current.x = THREE.MathUtils.clamp(droneTarget.current.x, -HALF_MAP, HALF_MAP);
+          droneTarget.current.z = THREE.MathUtils.clamp(droneTarget.current.z, -HALF_MAP, HALF_MAP);
+        }
+
         const orbitPitch = Math.max(0.2, mouseOrbit.current.pitch);
         const dist = mouseOrbit.current.distance * 2.8;
+        const groundY = getTerrainHeight(droneTarget.current.x, droneTarget.current.z);
 
-        const camX = Math.sin(orbitYaw) * Math.cos(orbitPitch) * dist;
-        const camY = Math.sin(orbitPitch) * dist + 45;
-        const camZ = Math.cos(orbitYaw) * Math.cos(orbitPitch) * dist;
+        const camX = droneTarget.current.x + Math.sin(orbitYaw) * Math.cos(orbitPitch) * dist;
+        const camY = groundY + Math.sin(orbitPitch) * dist + 45;
+        const camZ = droneTarget.current.z + Math.cos(orbitYaw) * Math.cos(orbitPitch) * dist;
 
         const droneTargetPos = new THREE.Vector3(camX, camY, camZ);
-        const droneLookAt = new THREE.Vector3(0, 10, 0);
+        const droneLookAt = new THREE.Vector3(droneTarget.current.x, groundY + 10, droneTarget.current.z);
 
-        smoothCamPos.lerp(droneTargetPos, delta * 4.5);
-        smoothLookAt.lerp(droneLookAt, delta * 4.5);
+        dampVec3(smoothCamPos, droneTargetPos, 4.5, delta);
+        dampVec3(smoothLookAt, droneLookAt, 4.5, delta);
 
         camera.position.copy(smoothCamPos);
         camera.lookAt(smoothLookAt);
@@ -571,6 +611,7 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', onResize);
       container.removeEventListener('mousedown', onPointerDown);
       window.removeEventListener('mouseup', onPointerUp);
