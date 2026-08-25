@@ -1,0 +1,6 @@
+{
+  "name": "UELE - Engineering Visualization World",
+  "description": "Interactive 3D Engineering Visualization World with realistic 6km x 6km terrain, vehicle driving & on-foot walking mode, winding regional roads, dense urban centers, rural villages, agricultural farmlands with active tractors, and infrastructure.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
