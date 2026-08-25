@@ -31,8 +31,17 @@ export function buildEngineeringWorld(scene: THREE.Scene): WorldObjects {
   const terrainTex = getTerrainTexture();
   terrainTex.repeat.set(60, 60);
 
-  // 6000m x 6000m terrain mesh (6km x 6km)
-  const terrainGeo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, 160, 160);
+  // 6000m x 6000m terrain mesh (6km x 6km).
+  // 320x320 segments (~18.75m/cell) instead of the original 160x160 (~37.5m/cell):
+  // the vehicle's ground height comes from the exact analytic getTerrainHeight()
+  // function every frame, but the *rendered* mesh only samples that function at
+  // its vertices and linearly interpolates between them. In steep areas (mountain
+  // waves, the dam gorge, quarry terraces) a coarse grid diverges from the exact
+  // curve by several meters, so the car visually sinks into slopes it is
+  // mathematically standing on top of. Doubling resolution keeps that error small
+  // relative to the terrain's shortest feature wavelength while staying cheap
+  // enough to build once at startup (this loop runs off the render thread).
+  const terrainGeo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, 320, 320);
   terrainGeo.rotateX(-Math.PI / 2);
 
   const posAttr = terrainGeo.attributes.position;

@@ -144,7 +144,7 @@ export default function App() {
       {/* 3D WebGL Engineering World */}
       <WorldCanvas
         mode={mode}
-        onSetMode={handleSetMode}
+        onToggleMode={handleSetMode}
         cameraView={cameraView}
         selectedVehicleType={selectedVehicleType}
         headlightsOn={headlightsOn}

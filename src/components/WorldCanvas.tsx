@@ -285,28 +285,28 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
 
       if (e.key === 'c' || e.key === 'C') {
-        if (mode === 'walk' && walkingRef.current) {
+        if (modeRef.current === 'walk' && walkingRef.current) {
           walkingRef.current.toggleViewMode();
-        } else if (onCycleCamera) {
-          onCycleCamera();
+        } else if (onCycleCameraRef.current) {
+          onCycleCameraRef.current();
         }
       }
       if (e.key === 'l' || e.key === 'L') {
-        if (onToggleHeadlights) onToggleHeadlights();
+        if (onToggleHeadlightsRef.current) onToggleHeadlightsRef.current();
       }
       // Enter / Exit Vehicle with F or E key
       if (e.key === 'f' || e.key === 'F' || e.key === 'e' || e.key === 'E') {
-        if (mode === 'drive' && vehicleRef.current && walkingRef.current && onToggleMode) {
+        if (modeRef.current === 'drive' && vehicleRef.current && walkingRef.current && onToggleModeRef.current) {
           const vState = vehicleRef.current.state;
           const exitX = vState.x + Math.cos(vState.rotation) * 2.4;
           const exitZ = vState.z - Math.sin(vState.rotation) * 2.4;
           const exitY = getTerrainHeight(exitX, exitZ);
           walkingRef.current.setPosition(exitX, exitY, exitZ, vState.rotation);
-          onToggleMode('walk');
-        } else if (mode === 'walk' && vehicleRef.current && walkingRef.current && onToggleMode) {
+          onToggleModeRef.current('walk');
+        } else if (modeRef.current === 'walk' && vehicleRef.current && walkingRef.current && onToggleModeRef.current) {
           const dist = walkingRef.current.getDistanceTo(vehicleRef.current.state.x, vehicleRef.current.state.z);
           if (dist <= 6.5) {
-            onToggleMode('drive');
+            onToggleModeRef.current('drive');
           }
         }
       }
@@ -336,6 +336,12 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
     let smoothCamPos = new THREE.Vector3(0, 16, -18);
     let smoothLookAt = new THREE.Vector3(0, 12, 0);
 
+    // Throttle HUD telemetry callbacks (each one fans out to ~8 React setState
+    // calls in App.tsx) to ~15Hz instead of the full 60fps render loop, so the
+    // HUD/minimap re-render far less often while still feeling responsive.
+    const HUD_UPDATE_INTERVAL = 1 / 15;
+    let lastHudUpdateTime = -Infinity;
+
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.1);
@@ -350,33 +356,36 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
       }
 
       // Mode: WALKING ON FOOT
-      if (mode === 'walk' && walking && vehicle) {
+      if (modeRef.current === 'walk' && walking && vehicle) {
         walking.update(delta, true);
         vehicle.update(delta, time); // Vehicle stays in neutral / idles
 
         const distToCar = walking.getDistanceTo(vehicle.state.x, vehicle.state.z);
         const nearCar = distToCar <= 6.5;
 
-        if (onWalkingUpdate) {
-          onWalkingUpdate(
+        if (time - lastHudUpdateTime >= HUD_UPDATE_INTERVAL) {
+          lastHudUpdateTime = time;
+          if (onWalkingUpdateRef.current) {
+            onWalkingUpdateRef.current(
+              Math.round(walking.currentSpeed),
+              Math.round(walking.stepsCount),
+              Math.round(walking.distanceWalked),
+              Math.round(walking.stamina),
+              nearCar
+            );
+          }
+
+          onVehicleUpdateRef.current(
             Math.round(walking.currentSpeed),
-            Math.round(walking.stepsCount),
-            Math.round(walking.distanceWalked),
-            Math.round(walking.stamina),
-            nearCar
+            'WALK',
+            0,
+            walking.position.x,
+            walking.position.z,
+            walking.rotation,
+            traffic ? traffic.getLiveTrafficPositions() : [],
+            18
           );
         }
-
-        onVehicleUpdate(
-          Math.round(walking.currentSpeed),
-          'WALK',
-          0,
-          walking.position.x,
-          walking.position.z,
-          walking.rotation,
-          traffic ? traffic.getLiveTrafficPositions() : [],
-          18
-        );
 
         // Walking Camera Tracking
         if (walking.viewMode === 'first_person') {
@@ -415,10 +424,10 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
         }
       }
       // Mode: VEHICLE DRIVING
-      else if (mode === 'drive' && vehicle && walking) {
+      else if (modeRef.current === 'drive' && vehicle && walking) {
         walking.update(delta, false);
         vehicle.update(delta, time);
-        onVehicleUpdate(
+        onVehicleUpdateRef.current(
           Math.round(vehicle.state.speed),
           vehicle.state.gear,
           vehicle.state.rpm,
@@ -429,6 +438,7 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
           vehicle.currentVehicleDef.maxSpeed
         );
 
+        const focusTarget = focusTargetRef.current;
         if (focusTarget) {
           // Focused transition to a specific engineering structure
           const targetPos = new THREE.Vector3(...focusTarget.pos);
@@ -440,6 +450,7 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
         } else {
           const carRot = vehicle.state.rotation;
           const vDef = vehicle.currentVehicleDef;
+          const cameraView = cameraViewRef.current;
 
           if (cameraView === 'driver_cockpit') {
             // 1. DRIVER EYE COCKPIT VIEW (Inside windshield looking forward)
@@ -532,7 +543,7 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
             camera.lookAt(smoothLookAt);
           }
         }
-      } else if (mode === 'drone') {
+      } else if (modeRef.current === 'drone') {
         // Aerial Inspection Drone Camera (Smooth Orbital Panoramic Flythrough)
         const orbitYaw = mouseOrbit.current.yaw;
         const orbitPitch = Math.max(0.2, mouseOrbit.current.pitch);
@@ -569,12 +580,36 @@ export const WorldCanvas: React.FC<WorldCanvasProps> = ({
       if (walkingRef.current) {
         walkingRef.current.dispose();
       }
+      if (vehicleRef.current) {
+        vehicleRef.current.dispose();
+      }
+      // Release every GPU geometry/material/texture allocated for the world so the
+      // WebGL context doesn't leak VRAM if this component ever unmounts/remounts.
+      scene.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (mesh.geometry) mesh.geometry.dispose();
+        const material = (mesh as any).material as THREE.Material | THREE.Material[] | undefined;
+        if (material) {
+          const materials = Array.isArray(material) ? material : [material];
+          materials.forEach((m) => {
+            Object.values(m).forEach((value) => {
+              if (value && typeof value === 'object' && 'isTexture' in value) {
+                (value as THREE.Texture).dispose();
+              }
+            });
+            m.dispose();
+          });
+        }
+      });
       if (renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement);
       }
       renderer.dispose();
     };
-  }, [cameraView, selectedVehicleType, mode]);
+    // Mount once: cameraView / selectedVehicleType / mode changes are handled by
+    // dedicated lightweight effects + refs above instead of rebuilding the scene.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Update Lighting according to Time of Day
   useEffect(() => {

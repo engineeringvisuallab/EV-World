@@ -453,15 +453,25 @@ export class VehicleController {
     });
   }
 
+  private onKeyDown = (e: KeyboardEvent) => {
+    this.keys[e.key] = true;
+    this.keys[e.code] = true;
+  };
+
+  private onKeyUp = (e: KeyboardEvent) => {
+    this.keys[e.key] = false;
+    this.keys[e.code] = false;
+  };
+
   private bindEvents() {
-    window.addEventListener('keydown', (e) => {
-      this.keys[e.key] = true;
-      this.keys[e.code] = true;
-    });
-    window.addEventListener('keyup', (e) => {
-      this.keys[e.key] = false;
-      this.keys[e.code] = false;
-    });
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+  }
+
+  /** Removes keyboard listeners bound in bindEvents(). Call when this controller is discarded. */
+  public dispose() {
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
   }
 
   public setPosition(x: number, y: number, z: number, rotation = 0) {

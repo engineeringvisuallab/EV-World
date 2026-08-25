@@ -38,6 +38,12 @@ export const SiteMiniMap: React.FC<SiteMiniMapProps> = ({
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [followPlayer, setFollowPlayer] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Offscreen cache of the mostly-static basemap (terrain, rivers, roads, zone
+  // markers). Redrawn only when the view actually changes shape (zoom/expand/
+  // selection, or the pan offset while follow-mode is on) — NOT on every
+  // player-position update — so the full 6km vector map isn't re-rasterized
+  // 60 times a second while driving.
+  const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // 6 km x 6 km Total World Extent (-3000m to +3000m)
   const WORLD_EXTENT = 3000;
@@ -58,15 +64,22 @@ export const SiteMiniMap: React.FC<SiteMiniMapProps> = ({
     return { cx, cy };
   };
 
-  // Render 6km Realistic Topographic Vector Canvas
+  // Render the mostly-static 6km Topographic Vector basemap into an offscreen
+  // canvas. Only re-runs when the view's shape changes (expand/zoom/follow
+  // toggle/selection), or — while actively following the player — when the
+  // pan offset moves, since panning does change what's visible.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    if (!staticCanvasRef.current) staticCanvasRef.current = document.createElement('canvas');
+    const staticCanvas = staticCanvasRef.current;
+    staticCanvas.width = canvas.width;
+    staticCanvas.height = canvas.height;
+    const ctx = staticCanvas.getContext('2d');
     if (!ctx) return;
 
-    const width = canvas.width;
-    const height = canvas.height;
+    const width = staticCanvas.width;
+    const height = staticCanvas.height;
     const panX = followPlayer ? playerX : 0;
     const panZ = followPlayer ? playerZ : 0;
     const zoom = followPlayer ? Math.max(2, zoomLevel) : zoomLevel;
@@ -290,15 +303,6 @@ export const SiteMiniMap: React.FC<SiteMiniMapProps> = ({
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 9. Live Ambient Traffic Blips
-    trafficList.forEach((v) => {
-      const pos = worldToCanvas(v.x, v.z, width, height, zoom, panX, panZ);
-      ctx.fillStyle = v.color || '#facc15';
-      ctx.beginPath();
-      ctx.arc(pos.cx, pos.cy, 2, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
     // 10. Engineering Structure Markers across 6km
     ENGINEERING_STRUCTURES.forEach((st) => {
       const isSelected = selectedStructure?.id === st.id;
@@ -325,7 +329,45 @@ export const SiteMiniMap: React.FC<SiteMiniMapProps> = ({
       }
     });
 
-    // 11. Player Position & Orientation Blip
+  }, [
+    isExpanded,
+    zoomLevel,
+    followPlayer,
+    selectedStructure,
+    // Panning only affects the basemap while actively following the player —
+    // otherwise player movement must NOT invalidate this cached layer.
+    followPlayer ? playerX : 0,
+    followPlayer ? playerZ : 0,
+  ]);
+
+  // Per-frame dynamic layer: blit the cached basemap, then draw only the
+  // things that genuinely change every tick — live traffic blips and the
+  // player marker/heading — instead of re-rendering the whole 6km vector map.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const staticCanvas = staticCanvasRef.current;
+    if (!canvas || !staticCanvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const panX = followPlayer ? playerX : 0;
+    const panZ = followPlayer ? playerZ : 0;
+    const zoom = followPlayer ? Math.max(2, zoomLevel) : zoomLevel;
+
+    ctx.drawImage(staticCanvas, 0, 0);
+
+    // Live Ambient Traffic Blips
+    trafficList.forEach((v) => {
+      const pos = worldToCanvas(v.x, v.z, width, height, zoom, panX, panZ);
+      ctx.fillStyle = v.color || '#facc15';
+      ctx.beginPath();
+      ctx.arc(pos.cx, pos.cy, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Player Position & Orientation Blip
     const playerPos = worldToCanvas(playerX, playerZ, width, height, zoom, panX, panZ);
 
     if (mode === 'walk') {
@@ -378,7 +420,7 @@ export const SiteMiniMap: React.FC<SiteMiniMapProps> = ({
       ctx.fill();
       ctx.restore();
     }
-  }, [playerX, playerZ, playerRotation, trafficList, selectedStructure, isExpanded, zoomLevel, followPlayer, mode]);
+  }, [playerX, playerZ, playerRotation, trafficList, mode, isExpanded, zoomLevel, followPlayer]);
 
   // Handle clicking on map to teleport
   const handleMapClick = (e: React.MouseEvent<HTMLCanvasElement>) => {

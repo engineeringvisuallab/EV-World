@@ -5,6 +5,10 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // GitHub Pages serves this project from https://engineeringvisuallab.github.io/EV-World/
+    // — every asset URL needs that repo-name prefix, or the deployed site loads a blank
+    // page while it 404s on JS/CSS requested from the domain root.
+    base: '/EV-World/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

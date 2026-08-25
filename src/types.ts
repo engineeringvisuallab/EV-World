@@ -6,7 +6,13 @@ export type EngineeringDiscipline =
   | 'Electrical & Energy'
   | 'Port & Marine Logistics'
   | 'Surveying & Geomatics'
-  | 'Urban & Architectural';
+  | 'Urban & Architectural'
+  | 'Architectural & Structural Engineering'
+  | 'Cultural Heritage & Civil Restoration'
+  | 'Healthcare & Public Works Infrastructure'
+  | 'Geotechnical & Structural Construction'
+  | 'Energy & Transportation Utilities'
+  | 'Urban Landscape & Public Realm';
 
 export interface EngineeringStructure {
   id: string;

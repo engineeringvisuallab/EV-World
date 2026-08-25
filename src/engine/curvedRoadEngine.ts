@@ -5,10 +5,17 @@ import { getAsphaltTexture } from './textures';
 export interface RoadSplinePoint {
   x: number;
   z: number;
+  /** Optional explicit elevation (world Y). When any control point defines this,
+   * the road ribbon is elevated (interpolated between control points) instead of
+   * hugging the raw terrain height — used for flyovers / viaducts. */
+  y?: number;
 }
 
 /**
  * Generates a smooth, curved 3D road ribbon conforming tightly to terrain heights.
+ * If any control point specifies an explicit `y`, the ribbon's elevation is
+ * interpolated along the spline from those control-point elevations instead of
+ * sampling raw terrain height — this keeps elevated flyovers actually elevated.
  */
 export function createCurvedRoadMesh(
   points: RoadSplinePoint[],
@@ -25,6 +32,25 @@ export function createCurvedRoadMesh(
 
   const totalPoints = Math.max(points.length * 15, sampleResolution);
   const sampledPoints = curve.getPoints(totalPoints);
+
+  // Elevation profile: if the caller supplied explicit elevations, interpolate
+  // them across the sampled points (parametrized the same way SplineCurve
+  // walks its control points) so the ribbon rises/falls smoothly and in sync
+  // with the pier columns built from the same control points.
+  const hasExplicitElevation = points.some((p) => typeof p.y === 'number');
+  const controlElevations = points.map((p) => (typeof p.y === 'number' ? p.y : null));
+  const getElevationAt = (t: number): number | null => {
+    if (!hasExplicitElevation) return null;
+    const u = t * (points.length - 1);
+    const seg = Math.min(points.length - 2, Math.max(0, Math.floor(u)));
+    const frac = u - seg;
+    const eA = controlElevations[seg];
+    const eB = controlElevations[seg + 1];
+    if (eA === null && eB === null) return null;
+    const resolvedA = eA ?? eB!;
+    const resolvedB = eB ?? eA!;
+    return resolvedA + (resolvedB - resolvedA) * frac;
+  };
 
   // 2. Build 3D Road Ribbon Geometry
   const roadGeo = new THREE.BufferGeometry();
@@ -60,9 +86,13 @@ export function createCurvedRoadMesh(
     const rx = pt.x + normal.x * halfW;
     const rz = pt.y + normal.y * halfW;
 
-    // Sample terrain elevation with a small vertical offset to prevent Z-fighting
-    const ly = getTerrainHeight(lx, lz) + 0.18;
-    const ry = getTerrainHeight(rx, rz) + 0.18;
+    // Sample terrain elevation with a small vertical offset to prevent Z-fighting.
+    // Elevated flyovers use the interpolated control-point elevation instead so
+    // the road ribbon actually rises with its pier columns rather than sitting
+    // on the ground beneath them.
+    const elev = getElevationAt(i / (sampledPoints.length - 1));
+    const ly = (elev ?? getTerrainHeight(lx, lz)) + 0.18;
+    const ry = (elev ?? getTerrainHeight(rx, rz)) + 0.18;
 
     // Add Left & Right vertices
     positions.push(lx, ly, lz);
@@ -135,10 +165,11 @@ export function createCurvedRoadMesh(
     const innerRx = pt.x + normal.x * halfW;
     const innerRz = pt.y + normal.y * halfW;
 
-    const ly = getTerrainHeight(lx, lz) + 0.12;
-    const ry = getTerrainHeight(rx, rz) + 0.12;
-    const inLy = getTerrainHeight(innerLx, innerLz) + 0.15;
-    const inRy = getTerrainHeight(innerRx, innerRz) + 0.15;
+    const elevShoulder = getElevationAt(i / (sampledPoints.length - 1));
+    const ly = (elevShoulder ?? getTerrainHeight(lx, lz)) + 0.12;
+    const ry = (elevShoulder ?? getTerrainHeight(rx, rz)) + 0.12;
+    const inLy = (elevShoulder ?? getTerrainHeight(innerLx, innerLz)) + 0.15;
+    const inRy = (elevShoulder ?? getTerrainHeight(innerRx, innerRz)) + 0.15;
 
     // 4 points per segment for left & right shoulders
     shoulderPos.push(lx, ly, lz);

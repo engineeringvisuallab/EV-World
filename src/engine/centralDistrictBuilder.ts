@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { getTerrainHeight } from './terrainEngine';
-import { getBuildingFacadeTexture, getConcreteTexture, getAsphaltRoadTexture } from './textures';
+import { getBuildingFacadeTexture, getConcreteTexture } from './textures';
 import { createCurvedRoadMesh, RoadSplinePoint } from './curvedRoadEngine';
 
 export interface CentralDistrictResult {
